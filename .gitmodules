@@ -1,0 +1,3 @@
+[submodule "Icarus"]
+	path = Icarus
+	url = git@github.com:Icarus-Quadro/Icarus.git
