@@ -1,3 +1,5 @@
 #pragma once
 
-extern "C" void wifi_init_sta();
+#include <functional>
+
+void initWiFi(std::function<void()> && onGotIP);

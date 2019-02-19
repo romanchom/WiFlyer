@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 project(WiFlyer)
 add_compile_options(-fdiagnostics-color=always)
+add_compile_options(-Wno-switch)
 
 set (IDF_EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/config")
 include("$ENV{IDF_PATH}/tools/cmake/idf_functions.cmake")
@@ -17,7 +18,7 @@ add_subdirectory(Icarus)
 
 add_executable(${PROJECT_NAME}.elf
     "main.cpp"
-    "WiFi.c"
+    "WiFi.cpp"
     "SensorsImpl.cpp"
 )
 
