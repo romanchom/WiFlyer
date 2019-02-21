@@ -7,6 +7,7 @@
 #include <icarus/BMP180.hpp>
 #include <icarus/AK8963.hpp>
 #include <icarus/I2CRegisterBank.hpp>
+#include <icarus/EllipsoidalCalibrator.hpp>
 
 #include "esp_log.h"
 
@@ -94,9 +95,53 @@ static void sensorTask(void *arg)
     }
 }
 
+template<typename Sampler>
+icarus::EllipsoidalCalibration calibrate(Sampler const & sampler)
+{
+    icarus::EllipsoidalCalibrator cal(100);
+
+    ESP_LOGI(TAG, "Reading samples");
+    for (int i = 0; i < 100; ++i) {
+        cal.addSample(sampler());
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+    ESP_LOGI(TAG, "Beginning calibration");
+    return cal.computeCalibration(9.8f);
+}
+
+static void calibrationTestTask(void*)
+{
+
+    auto i2c = I2CBus(gpioSda, gpioScl);
+
+    auto mpu9255Device = icarus::I2CRegisterBank(&i2c, 104);
+    auto mpu9255 = icarus::MPU9255(&mpu9255Device);
+
+    mpu9255.initialize();
+
+    auto accelCal = calibrate([&](){
+        mpu9255.read();
+        return mpu9255.acceleration();
+    });
+    ESP_LOGI(TAG, "Calibrated");
+
+    while (true) {
+        mpu9255.read();
+        auto raw = mpu9255.acceleration();
+        auto adj = accelCal.adjust(raw);
+        ESP_LOGI(TAG, "Raw: %f %f %f", raw[0], raw[1], raw[2]);
+        ESP_LOGI(TAG, "Adj: %f %f %f", adj[0], adj[1], adj[2]);
+
+        vTaskDelay(30 / portTICK_PERIOD_MS);
+    }
+}
+
+
 extern "C" void app_main()
 {
-    initWiFi([]() {
-        xTaskCreate(sensorTask, "sensorTask", 1024 * 4, (void *) 0, 10, NULL);
-    });
+    xTaskCreate(calibrationTestTask, "cal", 1024 * 16, (void *) 0, 10, NULL);
+
+    // initWiFi([]() {
+    //     xTaskCreate(sensorTask, "sensorTask", 1024 * 4, (void *) 0, 10, NULL);
+    // });
 }
