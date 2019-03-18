@@ -20,6 +20,8 @@ add_executable(${PROJECT_NAME}.elf
     "main.cpp"
     "WiFi.cpp"
     "SensorsImpl.cpp"
+    "motors.cpp"
+    "Flyer.cpp"
 )
 
 target_link_libraries(${PROJECT_NAME}.elf Icarus)

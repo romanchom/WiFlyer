@@ -1,6 +1,13 @@
 #include "PWM.hpp"
+#include "esp_log.h"
 
-static void testMotorsTask(void *arg)
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+constexpr auto TAG = "Motors";
+
+
+void testMotorsTask(void *arg)
 {
     auto timer = PWMTimer(0, 100, 13);
     auto pwm0 = PWM(&timer, GPIO_NUM_23, 0.0f);
@@ -13,11 +20,18 @@ static void testMotorsTask(void *arg)
     constexpr float one = 0.002f;
 
     float percentage = 0.0f;
-
+    float dir = 1;
     while (true) {
-        percentage += 0.01f;
-        if (percentage >= 0.4f) {
+        percentage += dir * 0.001f;
+        if (percentage >= 0.1f) {
+            dir = -1;
+        } else if (percentage <= 0.05f) {
+            dir = 1;
+        }
+
+        if (percentage > 0.15f) {
             percentage = 0.0f;
+            abort();
         }
 
         float duty = (zero + (one - zero) * percentage) / period;
@@ -28,9 +42,6 @@ static void testMotorsTask(void *arg)
         pwm3.duty(duty);
 
         ESP_LOGI(TAG, "%f%% %f", percentage, duty);
-        if (percentage == 0.0f) {
-            // vTaskDelay(1000);
-        }
-        vTaskDelay(10);
+        vTaskDelay(100);
     }
 }

@@ -37,7 +37,7 @@ struct I2CBus
 
         i2c_master_stop(cmd);
 
-        auto ret = i2c_master_cmd_begin(this->port, cmd, 10);
+        i2c_master_cmd_begin(this->port, cmd, 10);
 
         i2c_cmd_link_delete(cmd);
     }
