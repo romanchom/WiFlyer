@@ -108,7 +108,7 @@ void Flyer::track()
 
 
     icarus::GaussianDistribution<float, 7> state;
-    state.mean << 0, 0, 0, 1, 0, 0, 0;
+    state.mean << 0, 0, 0, 0, 0, 0, 1;
     state.covariance.setIdentity();
     state.covariance *= 0.01f;
 
@@ -127,20 +127,16 @@ void Flyer::track()
         measurement.covariance = Eigen::Matrix<float, 3, 3>::Identity() * 0.00001f;
 
         state = UnscentedKalmanFilter(state, processModel, measurementModel, measurement);
+        auto & s = reinterpret_cast<icarus::RigidBodyProcessModel<float>::State &>(state.mean);
+        s.orientation.normalize();
 
         auto end = CLK::now();
 
         std::chrono::duration<float, std::milli> seconds = end - begin;
 
-        ESP_LOGE(TAG, "UKF time %f", seconds.count());
-
-        auto s = reinterpret_cast<icarus::RigidBodyProcessModel<float>::State &>(state.mean);
-
         mTelemetry.orientation = s.orientation;
 
         send(sock, &mTelemetry, sizeof(mTelemetry), 0);
-
-        ESP_LOGE(TAG, "UKF quat %f %f %f %f", s.orientation.w(), s.orientation.x(), s.orientation.y(), s.orientation.z());
     }
 
     close(sock);
