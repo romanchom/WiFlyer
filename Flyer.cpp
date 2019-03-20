@@ -46,7 +46,7 @@ void Flyer::step()
     mBMP180.read();
 
     mTelemetry.acceleration = mMPU9255.acceleration();
-    mTelemetry.angularVelocity = mMPU9255.angularVelocity();
+    mTelemetry.angularVelocity = mMPU9255.angularVelocity() + mGyroOffset;
     mTelemetry.magneticField = mMagnetometerCalibration.adjust(mAK8964.magneticField());
     mTelemetry.pressure = mBMP180.pressure();
 
@@ -62,7 +62,7 @@ void Flyer::initialize()
         mMPU9255.i2cBypass(true);
         mAK8964.initialize();
         mBMP180.initialize();
-        mPhase = &Flyer::track;
+        mPhase = &Flyer::calibrate;
     } catch (std::runtime_error const & error) {
         ESP_LOGI(TAG, "Error: %s", error.what());
     }
@@ -74,19 +74,28 @@ void Flyer::calibrate()
 
     mNextStepTime = xTaskGetTickCount();
 
-    icarus::EllipsoidalCalibrator magCal(100);
+    // icarus::EllipsoidalCalibrator magCal(100);
+
+    mGyroOffset.setZero();
+    mGyroVariance.setZero();
 
     for (int i = 0; i < 100; ++i) {
-        for (int j = 0; j < 10; ++j) {
-            step();
-        }
+        step();
 
-        magCal.addSample(mAK8964.magneticField());
+        auto val = mMPU9255.angularVelocity();
+        auto oldMean = mGyroOffset;
+        mGyroOffset += (val - mGyroOffset) / (i + 1);
+        mGyroVariance += (val - oldMean).cwiseProduct(val - mGyroOffset);
+        // magCal.addSample(mAK8964.magneticField());
     }
 
-    ESP_LOGI(TAG, "Computing calibration");
+    mGyroOffset *= -1;
+    mGyroVariance /= 100;
 
-    mMagnetometerCalibration = magCal.computeCalibration(1.0f);
+    ESP_LOGI(TAG, "Gyro offset: %f %f %f",  mGyroOffset.x(), mGyroOffset.y(), mGyroOffset.z());
+    ESP_LOGI(TAG, "Gyro variance: %f %f %f",  mGyroVariance.x(), mGyroVariance.y(), mGyroVariance.z());
+
+    // mMagnetometerCalibration = magCal.computeCalibration(1.0f);
 
     ESP_LOGI(TAG, "Calibration complete");
 
@@ -115,26 +124,28 @@ void Flyer::track()
     icarus::RigidBodyProcessModel<float> processModel;
     icarus::GyroscopeMeasurementModel<float> measurementModel;
 
+    mNextStepTime = xTaskGetTickCount();
     using CLK = std::chrono::high_resolution_clock;
 
+    auto begin = CLK::now();
     while (true) {
         step();
-
-        auto begin = CLK::now();
+        auto end = CLK::now();
+        std::chrono::duration<float, std::milli> seconds = end - begin;
+        begin = end;
+        // ESP_LOGI(TAG, "%f", seconds.count());
 
         icarus::GaussianDistribution<float, 3> measurement;
         measurement.mean = mTelemetry.angularVelocity;
-        measurement.covariance = Eigen::Matrix<float, 3, 3>::Identity() * 0.00001f;
+        measurement.covariance.setZero();
+        measurement.covariance.diagonal() << mGyroVariance;
 
         state = UnscentedKalmanFilter(state, processModel, measurementModel, measurement);
         auto & s = reinterpret_cast<icarus::RigidBodyProcessModel<float>::State &>(state.mean);
         s.orientation.normalize();
 
-        auto end = CLK::now();
-
-        std::chrono::duration<float, std::milli> seconds = end - begin;
-
         mTelemetry.orientation = s.orientation;
+        mTelemetry.angularMomentum = s.angularMomentum;
 
         send(sock, &mTelemetry, sizeof(mTelemetry), 0);
     }

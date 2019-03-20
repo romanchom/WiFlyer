@@ -10,4 +10,5 @@ struct Telemetry {
     float pressure;
     float temperature;
     Eigen::Quaternion<float> orientation;
+    Eigen::Vector3f angularMomentum;
 };

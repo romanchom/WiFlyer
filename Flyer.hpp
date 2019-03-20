@@ -39,6 +39,8 @@ private:
     icarus::BMP180<RegisterBank> mBMP180;
 
     icarus::EllipsoidalCalibration mMagnetometerCalibration;
+    Eigen::Matrix<float, 3, 1> mGyroOffset;
+    Eigen::Matrix<float, 3, 1> mGyroVariance;
 
     Telemetry mTelemetry;
 };
