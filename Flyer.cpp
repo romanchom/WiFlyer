@@ -55,12 +55,15 @@ void Flyer::step()
 
 void Flyer::initialize()
 {
-    ESP_LOGI(TAG, "Initializing calibration");
+    ESP_LOGI(TAG, "Initializing sensors");
 
     try {
+        ESP_LOGI(TAG, "Initializing MPU9255");
         mMPU9255.initialize();
         mMPU9255.i2cBypass(true);
+        ESP_LOGI(TAG, "Initializing AK8964");
         mAK8964.initialize();
+        ESP_LOGI(TAG, "Initializing MPUBMP180");
         mBMP180.initialize();
         mPhase = &Flyer::calibrate;
     } catch (std::runtime_error const & error) {
@@ -115,37 +118,35 @@ void Flyer::track()
     }
     connect(sock, (sockaddr *) &destAddr, sizeof(destAddr));
 
-
-    icarus::GaussianDistribution<float, 7> state;
-    state.mean << 0, 0, 0, 0, 0, 0, 1;
-    state.covariance.setIdentity();
-    state.covariance *= 0.01f;
-
     icarus::RigidBodyProcessModel<float> processModel;
     icarus::GyroscopeMeasurementModel<float> measurementModel;
 
     mNextStepTime = xTaskGetTickCount();
     using CLK = std::chrono::high_resolution_clock;
 
-    auto begin = CLK::now();
+
+    icarus::UnscentedKalmanFilter<float, 7> kalman;
+    auto & state = kalman.state<icarus::RigidBodyProcessModel<float>::State>();
+    state.orientation.setIdentity();
+    state.angularMomentum.setZero();
+
+    icarus::GaussianDistribution<float, 3> measurement;
+    measurement.mean = mTelemetry.angularVelocity;
+    measurement.covariance.setZero();
+    measurement.covariance.diagonal() << mGyroVariance;
+
     while (true) {
         step();
+
+        auto begin = CLK::now();
+        kalman.filter(processModel, measurementModel, measurement, 0.01f);
+        state.orientation.normalize();
         auto end = CLK::now();
-        std::chrono::duration<float, std::milli> seconds = end - begin;
-        begin = end;
-        // ESP_LOGI(TAG, "%f", seconds.count());
+        auto micros = std::chrono::duration_cast<std::chrono::duration<int, std::micro>>(end - begin);
+        ESP_LOGI(TAG, "%d", micros.count());
 
-        icarus::GaussianDistribution<float, 3> measurement;
-        measurement.mean = mTelemetry.angularVelocity;
-        measurement.covariance.setZero();
-        measurement.covariance.diagonal() << mGyroVariance;
-
-        state = UnscentedKalmanFilter(state, processModel, measurementModel, measurement);
-        auto & s = reinterpret_cast<icarus::RigidBodyProcessModel<float>::State &>(state.mean);
-        s.orientation.normalize();
-
-        mTelemetry.orientation = s.orientation;
-        mTelemetry.angularMomentum = s.angularMomentum;
+        mTelemetry.orientation = state.orientation;
+        mTelemetry.angularMomentum = state.angularMomentum;
 
         send(sock, &mTelemetry, sizeof(mTelemetry), 0);
     }

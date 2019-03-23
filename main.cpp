@@ -11,6 +11,6 @@ static void flyerTask(void *)
 extern "C" void app_main()
 {
     initWiFi([]() {
-        xTaskCreate(flyerTask, "flyerTask", 1024 * 16, (void *) 0, 10, NULL);
+        xTaskCreatePinnedToCore(flyerTask, "flyerTask", 1024 * 16, (void *) 0, 10, NULL, 1);
     });
 }

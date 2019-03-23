@@ -14,7 +14,7 @@ include("$ENV{IDF_PATH}/tools/cmake/idf_functions.cmake")
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(Boost REQUIRED)
 
-add_subdirectory(Icarus)
+add_subdirectory(Icarus/icarus)
 
 add_executable(${PROJECT_NAME}.elf
     "main.cpp"
@@ -24,7 +24,7 @@ add_executable(${PROJECT_NAME}.elf
     "Flyer.cpp"
 )
 
-target_link_libraries(${PROJECT_NAME}.elf Icarus)
+target_link_libraries(${PROJECT_NAME}.elf icarus)
 
 set(IDF_BUILD_ARTIFACTS ON)
 set(IDF_BUILD_ARTIFACTS_DIR ${CMAKE_CURRENT_BINARY_DIR})
