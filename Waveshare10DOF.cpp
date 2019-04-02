@@ -117,7 +117,6 @@ void Waveshare10DOF::calibrateGyroscope()
     mCalibration.magnetometerVariance = magVar.variance();
 }
 
-
 void Waveshare10DOF::read()
 {
     mMPU9255.read();
@@ -143,5 +142,10 @@ Eigen::Matrix<float, 3, 1> Waveshare10DOF::angularVelocityVariance() const
 Eigen::Matrix<float, 3, 1> Waveshare10DOF::magneticField() const
 {
     return mCalibration.magnetometer.adjust(mAK8964.magneticField());
+}
+
+Eigen::Matrix<float, 3, 1> Waveshare10DOF::magneticFieldVariance() const
+{
+    return mCalibration.magnetometerVariance;
 }
 

@@ -22,6 +22,7 @@ struct Waveshare10DOF
     Eigen::Matrix<float, 3, 1> angularVelocity() const;
     Eigen::Matrix<float, 3, 1> angularVelocityVariance() const;
     Eigen::Matrix<float, 3, 1> magneticField() const;
+    Eigen::Matrix<float, 3, 1> magneticFieldVariance() const;
 private:
     void fullCalibration();
     void calibrateMagnetometer();

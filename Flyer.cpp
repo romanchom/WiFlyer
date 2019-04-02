@@ -3,8 +3,7 @@
 #include "ProtoBoardConfig.hpp"
 
 #include <icarus/sensorFusion/UnscentedKalmanFilter.hpp>
-#include <icarus/sensorFusion/GMMeasurementModel.hpp>
-#include <icarus/sensorFusion/RigidBodyProcessModel.hpp>
+#include <icarus/sensorFusion/FlightModel.hpp>
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -83,21 +82,26 @@ void Flyer::track()
     }
     connect(sock, (sockaddr *) &destAddr, sizeof(destAddr));
 
-    icarus::RigidBodyProcessModel<float> processModel;
-    icarus::GMMeasurementModel<float> measurementModel;
+    using FlightModel = icarus::FlightModel<float>;
+
+    FlightModel::ProcessModel processModel;
+    FlightModel::MeasurementModel measurementModel;
     measurementModel.referenceMagneticField(mTelemetry.magneticField);
 
     mNextStepTime = xTaskGetTickCount();
     using CLK = std::chrono::high_resolution_clock;
 
     icarus::UnscentedKalmanFilter<float, 7> kalman;
-    auto & state = kalman.state<icarus::RigidBodyProcessModel<float>::State>();
+    auto & state = kalman.state<FlightModel::State>();
     state.orientation.setIdentity();
     state.angularMomentum.setZero();
 
     icarus::GaussianDistribution<float, 6> measurement;
     measurement.covariance.setZero();
-    measurement.covariance.diagonal() << mIMU.angularVelocityVariance(), 0.01f, 0.01f, 0.01f;
+    measurement.covariance.diagonal() << mIMU.angularVelocityVariance(), mIMU.magneticFieldVariance() * 100;
+
+    std::cout << "Measurement covariance " << measurement.covariance.diagonal().transpose() << std::endl;
+    std::cout << "Reference north " << mTelemetry.magneticField.transpose() << std::endl;
 
     while (true) {
         step();
