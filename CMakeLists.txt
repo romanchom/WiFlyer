@@ -19,9 +19,9 @@ add_subdirectory(Icarus/icarus)
 add_executable(${PROJECT_NAME}.elf
     "main.cpp"
     "WiFi.cpp"
-    "SensorsImpl.cpp"
     "motors.cpp"
     "Flyer.cpp"
+    "Waveshare10DOF.cpp"
 )
 
 target_link_libraries(${PROJECT_NAME}.elf icarus)
