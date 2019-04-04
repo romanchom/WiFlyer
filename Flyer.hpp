@@ -2,7 +2,6 @@
 
 #include "I2CBus.hpp"
 #include "Waveshare10DOF.hpp"
-#include "Telemetry.hpp"
 
 struct Flyer {
     Flyer();
@@ -21,6 +20,4 @@ private:
     I2CBus mI2C;
 
     Waveshare10DOF mIMU;
-
-    Telemetry mTelemetry;
 };

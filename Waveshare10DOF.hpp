@@ -19,10 +19,13 @@ struct Waveshare10DOF
     void read();
 
     Eigen::Matrix<float, 3, 1> acceleration() const;
+    Eigen::Matrix<float, 3, 1> accelerationVariance() const;
     Eigen::Matrix<float, 3, 1> angularVelocity() const;
     Eigen::Matrix<float, 3, 1> angularVelocityVariance() const;
     Eigen::Matrix<float, 3, 1> magneticField() const;
     Eigen::Matrix<float, 3, 1> magneticFieldVariance() const;
+    float pressure() const;
+    float temperature() const;
 private:
     void fullCalibration();
     void calibrateMagnetometer();

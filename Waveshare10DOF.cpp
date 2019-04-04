@@ -80,16 +80,20 @@ void Waveshare10DOF::calibrateMagnetometer()
     constexpr size_t sampleSize = 100;
 
     icarus::EllipsoidalCalibrator<float> magCal(sampleSize);
+    icarus::EllipsoidalCalibrator<float> accCal(sampleSize);
 
     for (int i = 0; i < sampleSize; ++i) {
         read();
         magCal.addSample(mAK8964.magneticField());
+        accCal.addSample(mMPU9255.acceleration());
         loop.wait();
     }
 
     ESP_LOGI(TAG, "Computing magneto calibration");
 
     mCalibration.magnetometer = magCal.computeCalibration(1.0f);
+    mCalibration.accelerometer = accCal.computeCalibration(9.81f);
+
     Eigen::Matrix<float, 3, 3> axes;
     axes << 0, 1, 0,
             1, 0, 0,
@@ -103,18 +107,25 @@ void Waveshare10DOF::calibrateGyroscope()
     TaskLoop loop(100);
     constexpr size_t sampleSize = 100;
 
-    icarus::VarianceEstimator<float, 3> gyroVar(100), magVar(100);
+    icarus::VarianceEstimator<float, 3> gyroVar(100), magVar(100), accVar(100);
 
     for (int i = 0; i < sampleSize; ++i) {
         read();
         gyroVar.addSample(mMPU9255.angularVelocity());
         magVar.addSample(magneticField());
+        accVar.addSample(acceleration());
         loop.wait();
     }
 
     mCalibration.gyroscope = icarus::OffsetCalibration<float, 3>(gyroVar.mean());
     mCalibration.gyroscopeVariance = gyroVar.variance();
     mCalibration.magnetometerVariance = magVar.variance();
+
+    Eigen::Vector3f accOffset = accVar.mean();
+    accOffset -= Eigen::Vector3f(0.0f, 0.0f, 9.81f);
+
+    mCalibration.accelerometer.addOffset(-accOffset);
+    mCalibration.accelerometerVariance = accVar.variance();
 }
 
 void Waveshare10DOF::read()
@@ -127,6 +138,11 @@ void Waveshare10DOF::read()
 Eigen::Matrix<float, 3, 1> Waveshare10DOF::acceleration() const
 {
     return mCalibration.accelerometer.adjust(mMPU9255.acceleration());
+}
+
+Eigen::Matrix<float, 3, 1> Waveshare10DOF::accelerationVariance() const
+{
+    return mCalibration.accelerometerVariance;
 }
 
 Eigen::Matrix<float, 3, 1> Waveshare10DOF::angularVelocity() const
@@ -149,3 +165,12 @@ Eigen::Matrix<float, 3, 1> Waveshare10DOF::magneticFieldVariance() const
     return mCalibration.magnetometerVariance;
 }
 
+float Waveshare10DOF::pressure() const
+{
+    return mBMP180.pressure();
+}
+
+float Waveshare10DOF::temperature() const
+{
+    return mBMP180.temperature();
+}

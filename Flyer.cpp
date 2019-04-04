@@ -1,6 +1,7 @@
 #include "Flyer.hpp"
 
 #include "ProtoBoardConfig.hpp"
+#include "Telemetry.hpp"
 
 #include <icarus/sensorFusion/UnscentedKalmanFilter.hpp>
 #include <icarus/sensorFusion/FlightModel.hpp>
@@ -37,10 +38,6 @@ void Flyer::step()
 {
     mIMU.read();
 
-    mTelemetry.acceleration = mIMU.acceleration();
-    mTelemetry.angularVelocity = mIMU.angularVelocity();
-    mTelemetry.magneticField = mIMU.magneticField();
-
     vTaskDelayUntil(&mNextStepTime, 10 / portTICK_PERIOD_MS);
 }
 
@@ -62,7 +59,10 @@ void Flyer::calibrate()
 
     mIMU.calibrate();
 
-    step();
+    mNextStepTime = xTaskGetTickCount();
+    for (int i = 0; i < 25; ++i) {
+        step();
+    }
 
     mPhase = &Flyer::track;
 }
@@ -86,38 +86,79 @@ void Flyer::track()
 
     FlightModel::ProcessModel processModel;
     FlightModel::MeasurementModel measurementModel;
-    measurementModel.referenceMagneticField(mTelemetry.magneticField);
+
+    Eigen::Vector3f referenceMagneticField;
+    referenceMagneticField.setZero();
+    float referencePressure = 0;
+
+    constexpr int sampleSize = 10;
+    for (int i = 0; i < sampleSize; ++i) {
+        step();
+        referenceMagneticField += mIMU.magneticField();
+        referencePressure += mIMU.pressure();
+    }
+
+    referenceMagneticField /= sampleSize;
+    referencePressure /= sampleSize;
+
+    measurementModel.referenceMagneticField(referenceMagneticField);
+    measurementModel.referencePressure(referencePressure);
 
     mNextStepTime = xTaskGetTickCount();
     using CLK = std::chrono::high_resolution_clock;
 
-    icarus::UnscentedKalmanFilter<float, 7> kalman;
+    icarus::UnscentedKalmanFilter<float, 16> kalman;
     auto & state = kalman.state<FlightModel::State>();
     state.orientation.setIdentity();
     state.angularMomentum.setZero();
+    state.position.setZero();
+    state.velocity.setZero();
+    state.acceleration.setZero();
 
-    icarus::GaussianDistribution<float, 6> measurement;
+    icarus::GaussianDistribution<float, 10> measurement;
     measurement.covariance.setZero();
-    measurement.covariance.diagonal() << mIMU.angularVelocityVariance(), mIMU.magneticFieldVariance() * 100;
+    measurement.covariance.diagonal() <<
+        mIMU.angularVelocityVariance(),
+        mIMU.magneticFieldVariance() * 100,
+        mIMU.accelerationVariance() * 100,
+        1600;
 
-    std::cout << "Measurement covariance " << measurement.covariance.diagonal().transpose() << std::endl;
-    std::cout << "Reference north " << mTelemetry.magneticField.transpose() << std::endl;
+    // std::cout << "Measurement covariance " << measurement.covariance.diagonal().transpose() << std::endl;
 
+    // int i = 0;
     while (true) {
         step();
 
-        measurement.mean << mTelemetry.angularVelocity, mTelemetry.magneticField;
         auto begin = CLK::now();
+
+        measurement.mean <<
+            mIMU.angularVelocity(),
+            mIMU.magneticField(),
+            mIMU.acceleration(),
+            mIMU.pressure();
+
         kalman.filter(processModel, measurementModel, measurement, 0.01f);
         state.orientation.normalize();
+
         auto end = CLK::now();
         auto micros = std::chrono::duration_cast<std::chrono::duration<int, std::micro>>(end - begin);
-        // ESP_LOGI(TAG, "%d", micros.count());
 
-        mTelemetry.orientation = state.orientation;
-        mTelemetry.angularMomentum = state.angularMomentum;
+        // if (i == 0) {
+        //     ESP_LOGI(TAG, "T = %d", micros.count());
+        //     i = 100;
+        // }
+        // --i;
 
-        send(sock, &mTelemetry, sizeof(mTelemetry), 0);
+        Telemetry t;
+        t.orientation = state.orientation;
+        t.angularMomentum = state.angularMomentum;
+        t.position = state.position;
+        t.acceleration = state.acceleration;
+        t.angularVelocity = mIMU.angularVelocity();
+        t.magneticField = mIMU.magneticField();
+        t.pressure = mIMU.pressure();
+
+        send(sock, &t, sizeof(t), 0);
     }
 
     close(sock);
