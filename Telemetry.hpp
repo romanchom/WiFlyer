@@ -12,4 +12,5 @@ struct Telemetry {
     Eigen::Quaternion<float> orientation;
     Eigen::Vector3f angularMomentum;
     Eigen::Vector3f position;
+    float motors[4];
 };

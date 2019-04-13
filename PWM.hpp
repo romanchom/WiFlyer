@@ -7,7 +7,8 @@ struct PWMTimer
     PWMTimer(uint32_t timerId, uint32_t frequency, uint32_t resolutionBits) :
         mTimerId((ledc_timer_t) timerId),
         mCurrentChannel(0),
-        mSteps(1 << resolutionBits)
+        mSteps(1 << resolutionBits),
+        mFrequency(frequency)
     {
         ledc_timer_config_t ledc_timer;
 
@@ -40,21 +41,27 @@ struct PWMTimer
     {
         return LEDC_HIGH_SPEED_MODE;
     }
+
+    float frequency() const
+    {
+        return mFrequency;
+    }
 private:
     ledc_timer_t const mTimerId;
     int mCurrentChannel;
     uint32_t mSteps;
+    float mFrequency;
 };
 
 struct PWM
 {
-    PWM(PWMTimer * timer, gpio_num_t pin, float duty) :
+    PWM(PWMTimer * timer, gpio_num_t pin) :
         mTimer(timer),
         mChannel(timer->nextChannel())
     {
         ledc_channel_config_t pwm_config;
         pwm_config.channel = mChannel;
-        pwm_config.duty = calculateDuty(duty);
+        pwm_config.duty = 0;
         pwm_config.gpio_num = pin;
         pwm_config.speed_mode = timer->mode();
         pwm_config.hpoint = 0;
@@ -70,7 +77,7 @@ struct PWM
         ledc_update_duty(mTimer->mode(), mChannel);
     }
 
-private:
+protected:
     uint32_t calculateDuty(float duty) const {
         return static_cast<uint32_t>(mTimer->steps() * duty);
     }
