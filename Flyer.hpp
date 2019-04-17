@@ -4,13 +4,16 @@
 #include "Waveshare10DOF.hpp"
 #include "Telemetry.hpp"
 
+#include "WiFi.hpp"
+#include "Remote.hpp"
+
 #include <icarus/sensorFusion/UnscentedKalmanFilter.hpp>
 #include <icarus/sensorFusion/FlightModel.hpp>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-struct Flyer {
+struct Flyer : private WiFiListener {
     Flyer();
     void run();
 private:
@@ -24,11 +27,15 @@ private:
     static void i2cTask(void * context);
     static void stabilizationTask(void * context);
 
+    void onWiFiConnected() override;
+    void onWiFiDisconnected() override;
+
     void communicateI2C();
 
     void stabilize();
     void readOutSensors();
     void estimateState();
+    void controlMotors();
 
     void yield();
 
@@ -45,12 +52,12 @@ private:
     TaskHandle_t mStabilizationTask;
     TaskHandle_t mI2CTask;
 
-    TickType_t mNextStepTime;
+    WiFi mWiFi;
+    Remote mRemote;
 
     I2CBus mI2C;
 
     Waveshare10DOF mIMU;
-
 
     using FlightModel = icarus::FlightModel<float>;
 
@@ -58,7 +65,7 @@ private:
     FlightModel::MeasurementModel mMeasurementModel;
 
     icarus::UnscentedKalmanFilter<float, 16> mFilter;
-    icarus::GaussianDistribution<float, 7> mMeasurement;
+    icarus::GaussianDistribution<float, 10> mMeasurement;
 
     Telemetry mTelemetry;
 };

@@ -14,7 +14,8 @@
 struct Waveshare10DOF
 {
     struct CalibrationData {
-        icarus::EllipsoidalCalibration<float> accelerometer;
+        // icarus::EllipsoidalCalibration<float> accelerometer;
+        icarus::OffsetCalibration<float, 3> accelerometer;
         icarus::OffsetCalibration<float, 3> gyroscope;
         icarus::EllipsoidalCalibration<float> magnetometer;
     };

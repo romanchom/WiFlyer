@@ -1,18 +1,20 @@
 #include "Flyer.hpp"
 
 #include "ProtoBoardConfig.hpp"
+#include "TaskNotification.hpp"
 
 #include <esp_log.h>
 #include <nvs_flash.h>
 
-#include <iostream>
+#include <boost/range/irange.hpp>
+
 #include <chrono>
+
+using boost::irange;
 
 enum taskEvent : uint32_t {
     i2c = 1 << 0,
-    kalman = 1 << 1,
-    pid = 1 << 2,
-    controller = 1 << 3,
+    controller = 1 << 1,
 };
 
 static constexpr auto TAG = "Flyer";
@@ -23,15 +25,24 @@ Flyer::Flyer() :
 {
     mMeasurement.covariance.setIdentity();
 
-    xTaskCreatePinnedToCore(&Flyer::i2cTask, "i2c", 256, this, configMAX_PRIORITIES - 1, &mI2CTask, 1);
-    xTaskCreatePinnedToCore(&Flyer::stabilizationTask, "i2c", 1024 * 4, this, 0, &mStabilizationTask, 0);
+    mWiFi.addListener(this);
+    mWiFi.addListener(&mRemote);
+    mWiFi.start();
 }
 
 void Flyer::run()
 {
-    mControllerTask = xTaskGetCurrentTaskHandle();
-    mNextStepTime = xTaskGetTickCount();
+    ESP_LOGI(TAG, "Running flyer main task.");
 
+    mControllerTask = xTaskGetCurrentTaskHandle();
+
+    ESP_LOGI(TAG, "Creating main task.");
+    xTaskCreatePinnedToCore(&Flyer::i2cTask, "i2c", 1024 * 3, this, configMAX_PRIORITIES - 1, &mI2CTask, 1);
+
+    ESP_LOGI(TAG, "Creating stabilization task.");
+    xTaskCreatePinnedToCore(&Flyer::stabilizationTask, "stabilization", 1024 * 16, this, 5, &mStabilizationTask, 0);
+
+    ESP_LOGI(TAG, "Entering control task.");
     control();
 }
 
@@ -55,34 +66,41 @@ void Flyer::stabilizationTask(void * context)
     vTaskDelete(0);
 }
 
+void Flyer::onWiFiConnected()
+{
+
+}
+
+void Flyer::onWiFiDisconnected()
+{
+
+}
+
 void Flyer::communicateI2C()
 {
     mIMU.initialize();
+
     for (;;) {
         // i2c stuff
         mIMU.read();
 
+        xTaskNotify(mStabilizationTask, taskEvent::i2c, eSetBits);
         // wait for notification from stabilization task
         ulTaskNotifyTake(true, portMAX_DELAY);
     }
 }
 
-
 void Flyer::stabilize()
 {
-    uint32_t event;
+    ESP_LOGI(TAG, "S Enter.");
+    TaskNotification notification;
 
+    TickType_t nextStepTime = xTaskGetTickCount();
     for (;;) {
-        // pid and motor stuff
-        // controlMotors();
+        controlMotors();
 
         // wait for i2c
-        while (event & taskEvent::i2c) {
-            auto ret = xTaskNotifyWait(0, taskEvent::i2c, &event, pdMS_TO_TICKS(100));
-            if (ret != pdPASS) {
-                throw std::runtime_error("I2C not responding.");
-            }
-        }
+        notification.waitForEvent(taskEvent::i2c);
 
         readOutSensors();
         estimateState();
@@ -91,23 +109,22 @@ void Flyer::stabilize()
         xTaskNotifyGive(mControllerTask);
 
         // wait for controller
-        while (event & taskEvent::controller) {
-            auto ret = xTaskNotifyWait(0, taskEvent::controller, &event, pdMS_TO_TICKS(100));
-            if (ret != pdPASS) {
-                throw std::runtime_error("Controller not responding.");
-            }
-        }
+        notification.waitForEvent(taskEvent::controller);
+
+        mRemote.write(reinterpret_cast<std::byte const *>(&mTelemetry), sizeof(mTelemetry));
+        vTaskDelayUntil(&nextStepTime, pdMS_TO_TICKS(10));
     }
 }
 
 void Flyer::readOutSensors() {
     // get latest sensor values
-    mMeasurement.mean <<
-        mIMU.angularVelocity(),
-        mIMU.magneticField(),
-        // mIMU.acceleration(),
-        mIMU.pressure();
+    auto measurement = FlightModel::Measurement(mMeasurement.mean);
+    measurement.angularVelocity() = mIMU.angularVelocity();
+    measurement.magneticField() = mIMU.magneticField();
+    measurement.acceleration() = mIMU.acceleration();
+    measurement.pressure() = mIMU.pressure();
 
+    mTelemetry.acceleration = mIMU.acceleration();
     mTelemetry.angularVelocity = mIMU.angularVelocity();
     mTelemetry.magneticField = mIMU.magneticField();
     mTelemetry.pressure = mIMU.pressure();
@@ -119,36 +136,35 @@ void Flyer::readOutSensors() {
 void Flyer::estimateState()
 {
     mFilter.filter(mProcessModel, mMeasurementModel, mMeasurement, 0.01f);
-    auto & state = mFilter.state<FlightModel::State>();
-    state.orientation.normalize();
+    auto state = FlightModel::State(mFilter.stateVector());
+    state.orientation().normalize();
 
-    mTelemetry.orientation = state.orientation;
-    mTelemetry.angularMomentum = state.angularMomentum;
-    mTelemetry.position = state.position;
-    mTelemetry.acceleration = state.acceleration;
+    mTelemetry.orientation = state.orientation();
+    mTelemetry.angularMomentum = state.angularMomentum();
+    mTelemetry.position = state.position();
 }
 
-// void Flyer::controlMotors()
-// {
-//     // do stuff
+void Flyer::controlMotors()
+{
 
-//     // mTelemetry.motors = ???
-// }
+
+    // mTelemetry.motors = ???
+}
 
 void Flyer::yield()
 {
-    vTaskDelayUntil(&mNextStepTime, pdMS_TO_TICKS(10));
-    uint32_t event;
-    auto ret = xTaskNotifyWait(0, taskEvent::kalman, &event, pdMS_TO_TICKS(100));
-    if (ret == pdFALSE) {
-        throw std::runtime_error("Stabilizer task not responding.");
-    }
+    xTaskNotify(mStabilizationTask, taskEvent::controller, eSetBits);
+    ulTaskNotifyTake(true, portMAX_DELAY);
 }
 
 void Flyer::control()
 {
+    yield();
+    ESP_LOGI(TAG, "Calibrating.");
     calibrate();
+    ESP_LOGI(TAG, "Zeroing state.");
     zeroOutState();
+    ESP_LOGI(TAG, "Flying.");
     fly();
 }
 
@@ -159,58 +175,24 @@ void Flyer::zeroOutState()
     float referencePressure = 0;
 
     constexpr int sampleSize = 10;
-    for (int i = 0; i < sampleSize; ++i) {
+    for (auto i : irange(sampleSize)) {
+        yield();
         referenceMagneticField += mIMU.magneticField();
         referencePressure += mIMU.pressure();
-        yield();
     }
 
     referenceMagneticField /= sampleSize;
     referencePressure /= sampleSize;
 
+    std::cout << referenceMagneticField << std::endl;
+    std::cout << referencePressure << std::endl;
+
     mMeasurementModel.referenceMagneticField(referenceMagneticField);
     mMeasurementModel.referencePressure(referencePressure);
 
-    auto & state = mFilter.state<FlightModel::State>();
-    state.orientation.setIdentity();
-    state.angularMomentum.setZero();
-    state.position.setZero();
-    state.velocity.setZero();
-    state.acceleration.setZero();
-}
-
-void Flyer::calibrate()
-{
-    Calibration calibration;
-
-    nvs_handle handle;
-    esp_err_t err;
-    char const * const storageNamespace = "icarus";
-
-    err = nvs_open(storageNamespace, NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        // TODO fallback to full calibration if NVS is missing
-        throw std::runtime_error("Unable to access NVS");
-    }
-
-    size_t requiredSize = sizeof(calibration);
-    err = nvs_get_blob(handle, "calibration", &calibration, &requiredSize);
-    if (err != ESP_OK) {
-        fullCalibration(calibration);
-
-        ESP_LOGI(TAG, "Saving magneto calibration");
-
-        err = nvs_set_blob(handle, "calibration", &calibration, requiredSize);
-        err = nvs_commit(handle);
-    }
-
-    nvs_close(handle);
-
-    mMeasurement.covariance.diagonal() <<
-        calibration.accelerometerVariance,
-        calibration.gyroscopeVariance * 100,
-        calibration.magnetometerVariance * 100,
-        1600;
+    mFilter.reset();
+    auto state = FlightModel::State(mFilter.stateVector());
+    state.reset();
 }
 
 void Flyer::fly()
