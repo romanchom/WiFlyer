@@ -41,19 +41,10 @@ void Flyer::calibrate()
 
     mMeasurement.covariance.setZero();
     mMeasurement.covariance.diagonal() <<
-        calibration.gyroscopeVariance * 100,
-        calibration.magnetometerVariance * 100,
-        calibration.accelerometerVariance * 100,
-        1600;
-
-    // std::cout << "Accel cal\n";
-    // std::cout << calibration.waveshare.accelerometer.transformation() << std::endl;
-
-    std::cout << "\nMag mag\n";
-    std::cout << calibration.waveshare.magnetometer.transformation() << std::endl;
-
-    std::cout << "\nMeasurement covar\n";
-    std::cout << mMeasurement.covariance << std::endl;
+        calibration.gyroscopeVariance * 10,
+        calibration.magnetometerVariance * 10,
+        calibration.accelerometerVariance * 10,
+        25;
 
     mIMU.calibrationData(calibration.waveshare);
 }

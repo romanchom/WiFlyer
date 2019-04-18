@@ -12,12 +12,16 @@
 
 using boost::irange;
 
-enum taskEvent : uint32_t {
-    i2c = 1 << 0,
-    controller = 1 << 1,
-};
+namespace {
+    enum taskEvent : uint32_t {
+        i2c = 1 << 0,
+        controller = 1 << 1,
+    };
 
-static constexpr auto TAG = "Flyer";
+    constexpr auto TAG = "Flyer";
+    constexpr int periodMilliseconds = 10;
+    constexpr float periodSeconds = periodMilliseconds / 1000.0f;
+}
 
 Flyer::Flyer() :
     mI2C(gpioSda, gpioScl),
@@ -29,6 +33,8 @@ Flyer::Flyer() :
     mWiFi.addListener(&mRemote);
     mWiFi.start();
 }
+
+
 
 void Flyer::run()
 {
@@ -48,11 +54,7 @@ void Flyer::run()
 
 void Flyer::i2cTask(void * context)
 {
-    try {
-        static_cast<Flyer *>(context)->communicateI2C();
-    } catch (std::runtime_error const & error) {
-        ESP_LOGE(TAG, "%s", error.what());
-    }
+    static_cast<Flyer *>(context)->communicateI2C();
     vTaskDelete(0);
 }
 
@@ -77,8 +79,12 @@ void Flyer::onWiFiDisconnected()
 }
 
 void Flyer::communicateI2C()
-{
+try {
     mIMU.initialize();
+    
+    xTaskNotify(mStabilizationTask, taskEvent::i2c, eSetBits);
+    // wait for notification from stabilization task
+    ulTaskNotifyTake(true, portMAX_DELAY);
 
     for (;;) {
         // i2c stuff
@@ -88,6 +94,8 @@ void Flyer::communicateI2C()
         // wait for notification from stabilization task
         ulTaskNotifyTake(true, portMAX_DELAY);
     }
+} catch (std::runtime_error const & error) {
+    ESP_LOGE(TAG, "%s", error.what());
 }
 
 void Flyer::stabilize()
@@ -106,13 +114,15 @@ void Flyer::stabilize()
         estimateState();
 
         // notify controller
+        // std::cout << "S->C" << std::endl;
         xTaskNotifyGive(mControllerTask);
 
         // wait for controller
         notification.waitForEvent(taskEvent::controller);
+        // std::cout << "C->S" << std::endl;
 
         mRemote.write(reinterpret_cast<std::byte const *>(&mTelemetry), sizeof(mTelemetry));
-        vTaskDelayUntil(&nextStepTime, pdMS_TO_TICKS(10));
+        vTaskDelayUntil(&nextStepTime, pdMS_TO_TICKS(periodMilliseconds));
     }
 }
 
@@ -135,13 +145,15 @@ void Flyer::readOutSensors() {
 
 void Flyer::estimateState()
 {
-    mFilter.filter(mProcessModel, mMeasurementModel, mMeasurement, 0.01f);
+    mFilter.filter(mProcessModel, mMeasurementModel, mMeasurement, periodSeconds);
     auto state = FlightModel::State(mFilter.stateVector());
     state.orientation().normalize();
 
     mTelemetry.orientation = state.orientation();
     mTelemetry.angularMomentum = state.angularMomentum();
     mTelemetry.position = state.position();
+    mTelemetry.velocity = state.velocity();
+    mTelemetry.worldAcceleration = state.acceleration();
 }
 
 void Flyer::controlMotors()
@@ -159,7 +171,11 @@ void Flyer::yield()
 
 void Flyer::control()
 {
-    yield();
+    ulTaskNotifyTake(true, portMAX_DELAY);
+    // for (auto i : irange(10)) {
+        // wait untill sensors stabilize
+        yield();
+    // }
     ESP_LOGI(TAG, "Calibrating.");
     calibrate();
     ESP_LOGI(TAG, "Zeroing state.");
@@ -184,8 +200,8 @@ void Flyer::zeroOutState()
     referenceMagneticField /= sampleSize;
     referencePressure /= sampleSize;
 
-    std::cout << referenceMagneticField << std::endl;
-    std::cout << referencePressure << std::endl;
+    std::cout << "Ref mag: " << referenceMagneticField.transpose() << std::endl;
+    std::cout << "Ref press: " << referencePressure << std::endl;
 
     mMeasurementModel.referenceMagneticField(referenceMagneticField);
     mMeasurementModel.referencePressure(referencePressure);
