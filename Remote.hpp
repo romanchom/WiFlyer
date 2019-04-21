@@ -11,6 +11,7 @@ struct Remote : WiFiListener
 {
     explicit Remote();
     void write(std::byte const * data, size_t size);
+    size_t read(std::byte * data, size_t size);
 
     void onWiFiConnected() override;
     void onWiFiDisconnected() override;

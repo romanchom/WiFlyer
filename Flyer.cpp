@@ -2,6 +2,7 @@
 
 #include "ProtoBoardConfig.hpp"
 #include "TaskNotification.hpp"
+#include "Messages.hpp"
 
 #include <esp_log.h>
 #include <nvs_flash.h>
@@ -25,7 +26,20 @@ namespace {
 
 Flyer::Flyer() :
     mI2C(gpioSda, gpioScl),
-    mIMU(&mI2C)
+    mIMU(&mI2C),
+    mMotorsEnabled(false),
+    mAxialError(Eigen::Vector3f::Zero()),
+    mMotorTimer(0, 200, 12),
+    mMotors{
+        {&mMotorTimer, gpioEscStarboardBow},
+        {&mMotorTimer, gpioEscPortBow},
+        {&mMotorTimer, gpioEscPortQuarter},
+        {&mMotorTimer, gpioEscStarboardQuarter},
+    },
+    mRollPID(0.1f, 0.1f),
+    mPitchPID(0.1, 0.1f),
+    mYawPID(0.05f, 0.05f),
+    mThrottle(0.0f)
 {
     mMeasurement.covariance.setIdentity();
 
@@ -75,13 +89,13 @@ void Flyer::onWiFiConnected()
 
 void Flyer::onWiFiDisconnected()
 {
-
+    mMotorsEnabled = false;
 }
 
 void Flyer::communicateI2C()
 try {
     mIMU.initialize();
-    
+
     xTaskNotify(mStabilizationTask, taskEvent::i2c, eSetBits);
     // wait for notification from stabilization task
     ulTaskNotifyTake(true, portMAX_DELAY);
@@ -158,9 +172,31 @@ void Flyer::estimateState()
 
 void Flyer::controlMotors()
 {
+    std::array<float, 4> thrusts;
 
+    float xThrust = mRollPID.control(mAxialError[1], periodSeconds);
+    float yThrust = mPitchPID.control(-mAxialError[0], periodSeconds);
 
-    // mTelemetry.motors = ???
+    thrusts[0] = -xThrust - yThrust;
+    thrusts[1] = xThrust - yThrust;
+    thrusts[2] = xThrust + yThrust;
+    thrusts[3] = -xThrust + yThrust;
+
+    for (auto i : irange(4)) {
+        thrusts[i] += mThrottle;
+    }
+
+    if (mMotorsEnabled) {
+        for (auto i : irange(4)) {
+            mMotors[i].thrust(std::clamp(thrusts[i], 0.08f, 0.4f));
+        }
+    } else {
+        for (auto i : irange(4)) {
+            mMotors[i].thrust(0.0f);
+        }
+    }
+
+    mTelemetry.motors = thrusts;
 }
 
 void Flyer::yield()
@@ -172,10 +208,10 @@ void Flyer::yield()
 void Flyer::control()
 {
     ulTaskNotifyTake(true, portMAX_DELAY);
-    // for (auto i : irange(10)) {
+    for (auto i : irange(20)) {
         // wait untill sensors stabilize
         yield();
-    // }
+    }
     ESP_LOGI(TAG, "Calibrating.");
     calibrate();
     ESP_LOGI(TAG, "Zeroing state.");
@@ -211,10 +247,55 @@ void Flyer::zeroOutState()
     state.reset();
 }
 
+void Flyer::takeOff()
+{
+    mMotorsEnabled = true;
+    mRollPID.reset();
+    mPitchPID.reset();
+
+    mFilter.reset();
+    auto state = FlightModel::State(mFilter.stateVector());
+    state.reset();
+}
+
 void Flyer::fly()
 {
     for (;;) {
-        // do something with current state estimate and come up with motor values
+        std::byte buffer[64];
+        auto bytesRead = mRemote.read(buffer, sizeof(buffer));
+        if (bytesRead > 0) {
+            std::cout << "Somethign: " << std::endl;
+
+            switch (int(buffer[0])) {
+            case PIDMessage::id:
+                {
+                    auto & m = *reinterpret_cast<PIDMessage *>(buffer + 1);
+                    mRollPID.set(m.rollP, m.rollI, m.rollD);
+                    mPitchPID.set(m.pitchP, m.pitchI, m.pitchD);
+
+                    std::cout << "PID: " << m.rollP << ", " << m.rollI << ", " << m.rollD << std::endl;
+                }
+                break;
+            case SteeringMessage::id:
+                {
+                    auto & m = *reinterpret_cast<SteeringMessage *>(buffer + 1);
+                    mMotorsEnabled = (m.enabled != 0);
+                    mThrottle = m.throttle;
+                    std::cout << "Steering: " << m.enabled << ", " << m.throttle << std::endl;
+                }
+                break;
+            }
+        }
+
+        auto state = FlightModel::State(mFilter.stateVector());
+
+        Eigen::Quaternion<float> targetOrientation;
+        targetOrientation.setIdentity();
+
+        Eigen::AngleAxis<float> deltaOrientation(targetOrientation * state.orientation().conjugate());
+
+        mAxialError = deltaOrientation.axis() * deltaOrientation.angle();
+
         yield();
     }
 }

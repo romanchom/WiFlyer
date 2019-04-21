@@ -43,8 +43,8 @@ void Flyer::calibrate()
     mMeasurement.covariance.diagonal() <<
         calibration.gyroscopeVariance * 10,
         calibration.magnetometerVariance * 10,
-        calibration.accelerometerVariance * 10,
-        25;
+        100, 100, 100,
+        1600;
 
     mIMU.calibrationData(calibration.waveshare);
 }

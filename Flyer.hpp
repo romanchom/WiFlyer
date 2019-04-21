@@ -6,9 +6,11 @@
 
 #include "WiFi.hpp"
 #include "Remote.hpp"
+#include "MotorPWM.hpp"
 
 #include <icarus/sensorFusion/UnscentedKalmanFilter.hpp>
 #include <icarus/sensorFusion/FlightModel.hpp>
+#include <icarus/actuator/PID.hpp>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -46,6 +48,7 @@ private:
     void calibrateMagnetometer(Calibration & calibration);
     void calibrateGyroscope(Calibration & calibration);
 
+    void takeOff();
     void fly();
 
     TaskHandle_t mControllerTask;
@@ -68,4 +71,13 @@ private:
     icarus::GaussianDistribution<float, 10> mMeasurement;
 
     Telemetry mTelemetry;
+
+    bool mMotorsEnabled;
+    Eigen::Vector3f mAxialError;
+    PWMTimer mMotorTimer;
+    MotorPWM mMotors[4];
+    icarus::PID<float> mRollPID;
+    icarus::PID<float> mPitchPID;
+    icarus::PID<float> mYawPID;
+    float mThrottle;
 };

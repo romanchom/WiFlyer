@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
+#include <array>
 
 struct Telemetry {
     Eigen::Vector3f acceleration;
@@ -14,5 +15,5 @@ struct Telemetry {
     Eigen::Vector3f position;
     Eigen::Vector3f velocity;
     Eigen::Vector3f worldAcceleration;
-    float motors[4];
+    std::array<float, 4> motors;
 };
