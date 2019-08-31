@@ -20,7 +20,7 @@ void Remote::write(std::byte const * data, size_t size)
     sockaddr_in destAddr;
     destAddr.sin_family = AF_INET;
     destAddr.sin_addr.s_addr = 0xFFFFFFFF;
-    destAddr.sin_port = htons(12345);
+    destAddr.sin_port = htons(42424);
 
     if (mDescriptor != -1) {
         sendto(mDescriptor, data, size, 0, (sockaddr *) &destAddr, sizeof(destAddr));

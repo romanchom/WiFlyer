@@ -7,6 +7,7 @@
 #include "WiFi.hpp"
 #include "Remote.hpp"
 #include "MotorPWM.hpp"
+#include "Sonar.hpp"
 
 #include <icarus/sensorFusion/UnscentedKalmanFilter.hpp>
 #include <icarus/sensorFusion/FlightModel.hpp>
@@ -76,6 +77,8 @@ private:
     Eigen::Vector3f mAxialError;
     PWMTimer mMotorTimer;
     MotorPWM mMotors[4];
+    Sonar mSonar;
+
     icarus::PID<float> mRollPID;
     icarus::PID<float> mPitchPID;
     icarus::PID<float> mYawPID;

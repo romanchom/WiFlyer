@@ -36,6 +36,7 @@ Flyer::Flyer() :
         {&mMotorTimer, gpioEscPortQuarter},
         {&mMotorTimer, gpioEscStarboardQuarter},
     },
+    mSonar(32, 39),
     mRollPID(0.1f, 0.1f),
     mPitchPID(0.1, 0.1f),
     mYawPID(0.05f, 0.05f),
@@ -47,8 +48,6 @@ Flyer::Flyer() :
     mWiFi.addListener(&mRemote);
     mWiFi.start();
 }
-
-
 
 void Flyer::run()
 {
@@ -103,6 +102,7 @@ try {
     for (;;) {
         // i2c stuff
         mIMU.read();
+        mSonar.startMeasurement();
 
         xTaskNotify(mStabilizationTask, taskEvent::i2c, eSetBits);
         // wait for notification from stabilization task
