@@ -2,10 +2,10 @@
 
 #include "EspWait.hpp"
 
-#include <driver/gpio.h>
 #include <esp_log.h>
 
 #include <optional>
+
 static constexpr auto TAG = "Sonar";
 
 Sonar::Sonar(int triggerPin, int echoPin) :
@@ -28,23 +28,29 @@ Sonar::Sonar(int triggerPin, int echoPin) :
         gpio_config(&io_conf);
     }
 }
-
-std::optional<float> Sonar::distance()
-{
-    return {};
-}
-
+int asd = 2;
 void Sonar::startMeasurement()
 {
-    ESP_LOGI(TAG, "Ping");
-    gpio_set_level((gpio_num_t) mTriggerPin, 1);
-    EspWait::microseconds(10);
-    gpio_set_level((gpio_num_t) mTriggerPin, 0);
+    if (asd == 10) {
+        ESP_LOGI(TAG, "Ping %f", delay() ? *delay() : 0.0f);
+        asd = 0;
+        gpio_set_level((gpio_num_t) mTriggerPin, 1);
+        EspWait::microseconds(10);
+        gpio_set_level((gpio_num_t) mTriggerPin, 0);
+    }
+    ++asd;
 }
 
 void IRAM_ATTR Sonar::handleInterrupt(void* arg)
 {
+    auto now = esp_timer_get_time();
+    ets_printf("a");
     auto self = static_cast<Sonar *>(arg);
-    ESP_LOGI(TAG, "Pong");
+    if (self->mMeasurementBegin) {
+        self->mDelay = now - self->mMeasurementBegin;
+        self->mMeasurementBegin = 0;
+    } else {
+        self->mMeasurementBegin = now;
+    }
 }
 

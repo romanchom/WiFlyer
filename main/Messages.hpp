@@ -16,4 +16,5 @@ struct SteeringMessage
     enum { id = 1 };
     int enabled;
     float throttle;
+    int reset;
 };

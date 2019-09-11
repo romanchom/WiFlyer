@@ -37,9 +37,9 @@ Flyer::Flyer() :
         {&mMotorTimer, gpioEscStarboardQuarter},
     },
     mSonar(32, 39),
-    mRollPID(0.1f, 0.1f),
-    mPitchPID(0.1, 0.1f),
-    mYawPID(0.05f, 0.05f),
+    mRollPID(0.1f, 0.0f),
+    mPitchPID(0.1, 0.0f),
+    mYawPID(0.05f, 0.0f),
     mThrottle(0.0f)
 {
     mMeasurement.covariance.setIdentity();
@@ -128,12 +128,10 @@ void Flyer::stabilize()
         estimateState();
 
         // notify controller
-        // std::cout << "S->C" << std::endl;
         xTaskNotifyGive(mControllerTask);
 
         // wait for controller
         notification.waitForEvent(taskEvent::controller);
-        // std::cout << "C->S" << std::endl;
 
         mRemote.write(reinterpret_cast<std::byte const *>(&mTelemetry), sizeof(mTelemetry));
         vTaskDelayUntil(&nextStepTime, pdMS_TO_TICKS(periodMilliseconds));
@@ -264,24 +262,22 @@ void Flyer::fly()
         std::byte buffer[64];
         auto bytesRead = mRemote.read(buffer, sizeof(buffer));
         if (bytesRead > 0) {
-            std::cout << "Somethign: " << std::endl;
-
             switch (int(buffer[0])) {
             case PIDMessage::id:
                 {
                     auto & m = *reinterpret_cast<PIDMessage *>(buffer + 1);
                     mRollPID.set(m.rollP, m.rollI, m.rollD);
                     mPitchPID.set(m.pitchP, m.pitchI, m.pitchD);
-
-                    std::cout << "PID: " << m.rollP << ", " << m.rollI << ", " << m.rollD << std::endl;
                 }
                 break;
             case SteeringMessage::id:
                 {
                     auto & m = *reinterpret_cast<SteeringMessage *>(buffer + 1);
+                    if (!mMotorsEnabled && (m.enabled != 0)) {
+                        takeOff();
+                    }
                     mMotorsEnabled = (m.enabled != 0);
                     mThrottle = m.throttle;
-                    std::cout << "Steering: " << m.enabled << ", " << m.throttle << std::endl;
                 }
                 break;
             }

@@ -39,12 +39,16 @@ void Flyer::calibrate()
 
     nvs_close(handle);
 
+    FlightModel::MeasurementVector varianceVec;
+    FlightModel::Measurement variance(varianceVec);
+
+    variance.angularVelocity() = calibration.gyroscopeVariance * 10;
+    variance.magneticField() = calibration.magnetometerVariance * 2;
+    variance.pressure() = 36;
+    variance.acceleration() << 1, 1, 1;
+
     mMeasurement.covariance.setZero();
-    mMeasurement.covariance.diagonal() <<
-        calibration.gyroscopeVariance * 10,
-        calibration.magnetometerVariance * 10,
-        100, 100, 100,
-        1600;
+    mMeasurement.covariance.diagonal() = varianceVec;
 
     mIMU.calibrationData(calibration.waveshare);
 }
@@ -71,20 +75,17 @@ void Flyer::calibrateMagnetometer(Calibration & calibration)
     constexpr size_t sampleSize = 100;
 
     icarus::EllipsoidalCalibrator<float> magCal(sampleSize);
-    // icarus::EllipsoidalCalibrator<float> accCal(sampleSize);
 
     for (auto i : irange(sampleSize)) {
         for (auto j : irange(10)) {
             yield();
         }
         magCal.addSample(mIMU.rawMagneticField());
-        // accCal.addSample(mIMU.rawAcceleration());
     }
 
     ESP_LOGI(TAG, "Computing magneto calibration");
 
     calibration.waveshare.magnetometer = magCal.computeCalibration(1.0f);
-    // calibration.waveshare.accelerometer = accCal.computeCalibration(9.81f);
 
     Eigen::Matrix<float, 3, 3> axes;
     axes << 0, 1, 0,
@@ -112,10 +113,5 @@ void Flyer::calibrateGyroscope(Calibration & calibration)
 
     calibration.gyroscopeVariance = gyroVar.variance();
     calibration.magnetometerVariance = magVar.variance();
-
-    // Eigen::Vector3f accOffset = accVar.mean();
-    // accOffset -= Eigen::Vector3f(0.0f, 0.0f, 9.81f);
-
-    // calibration.waveshare.accelerometer.addOffset(-accOffset);
     calibration.accelerometerVariance = accVar.variance();
 }
